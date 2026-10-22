@@ -45,6 +45,7 @@ npm run icons     # 重新生成扩展图标（需要 Pillow）
 
 - `test/fixture.html`：双布局人工测试页
 - `test/harness.html`：用 headless Chrome 自动验证检测逻辑
+- `test/offscreen-cdp-test.js`：用 CDP 装载扩展，从 service worker 直跑 `SC_INIT` / `SC_FRAME`，验证离屏拼接链路（需本机 Chrome）
 
 ```bash
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
