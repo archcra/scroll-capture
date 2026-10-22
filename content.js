@@ -37,28 +37,76 @@
       } catch (e) {
         continue;
       }
-      if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
       if (cs.display === 'none' || cs.visibility === 'hidden') continue;
 
       var r = el.getBoundingClientRect();
       if (r.width < 1 || r.height < 1) continue;
-      if (!intersects(r, rect)) continue;
 
-      var rec = { el: el, prop: '', value: '', priority: '' };
-      if (cs.position === 'sticky') {
-        rec.prop = 'position';
-        rec.value = el.style.getPropertyValue('position');
-        rec.priority = el.style.getPropertyPriority('position');
-        el.style.setProperty('position', 'static', 'important');
-      } else {
-        rec.prop = 'visibility';
-        rec.value = el.style.getPropertyValue('visibility');
-        rec.priority = el.style.getPropertyPriority('visibility');
-        el.style.setProperty('visibility', 'hidden', 'important');
+      var handled = false;
+      if ((cs.position === 'fixed' || cs.position === 'sticky') && intersects(r, rect)) {
+        var rec = { el: el, prop: '', value: '', priority: '' };
+        if (cs.position === 'sticky') {
+          rec.prop = 'position';
+          rec.value = el.style.getPropertyValue('position');
+          rec.priority = el.style.getPropertyPriority('position');
+          el.style.setProperty('position', 'static', 'important');
+        } else {
+          rec.prop = 'visibility';
+          rec.value = el.style.getPropertyValue('visibility');
+          rec.priority = el.style.getPropertyPriority('visibility');
+          el.style.setProperty('visibility', 'hidden', 'important');
+        }
+        overlayRecords.push(rec);
+        handled = true;
       }
-      overlayRecords.push(rec);
+
+      if (!handled && cs.contentVisibility === 'auto') {
+        var cv = { el: el, prop: 'content-visibility', value: el.style.getPropertyValue('content-visibility'), priority: el.style.getPropertyPriority('content-visibility') };
+        el.style.setProperty('content-visibility', 'visible', 'important');
+        overlayRecords.push(cv);
+      }
     }
     return overlayRecords.length;
+  }
+
+  function currentHeight() {
+    return (mode === 'container' && targetEl) ? targetEl.scrollHeight : document.documentElement.scrollHeight;
+  }
+
+  function currentTop() {
+    return (mode === 'container' && targetEl) ? targetEl.scrollTop : window.scrollY;
+  }
+
+  function scrollTopZero() {
+    if (mode === 'container' && targetEl) targetEl.scrollTop = 0;
+    else window.scrollTo(0, 0);
+  }
+
+  function settleTop(capMs) {
+    return new Promise(function (resolve) {
+      var t0 = Date.now();
+      var lastH = -1;
+      var stable = 0;
+      function tick() {
+        scrollTopZero();
+        setTimeout(function () {
+          var h = currentHeight();
+          if (h === lastH && currentTop() <= 4) stable++;
+          else stable = 0;
+          lastH = h;
+          if (stable >= 2) {
+            resolve({ ok: true, scrollHeight: currentHeight(), waited: Date.now() - t0 });
+            return;
+          }
+          if (Date.now() - t0 >= capMs) {
+            resolve({ ok: false, scrollHeight: currentHeight(), waited: Date.now() - t0 });
+            return;
+          }
+          tick();
+        }, 300);
+      }
+      tick();
+    });
   }
 
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
@@ -92,6 +140,13 @@
       return true;
     }
 
+    if (msg.type === 'SC_SETTLE_TOP') {
+      settleTop(msg.capMs || 6000).then(function (r) {
+        sendResponse(r);
+      });
+      return true;
+    }
+
     if (msg.type === 'SC_SCROLL') {
       if (mode === 'container' && targetEl) {
         targetEl.scrollTop = msg.y;
@@ -101,7 +156,7 @@
       requestAnimationFrame(function () {
         requestAnimationFrame(function () {
           var actual = (mode === 'container' && targetEl) ? targetEl.scrollTop : window.scrollY;
-          sendResponse({ scrollTop: actual });
+          sendResponse({ scrollTop: actual, scrollHeight: currentHeight() });
         });
       });
       return true;

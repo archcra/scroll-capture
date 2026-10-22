@@ -81,9 +81,9 @@ async function toOffscreen(msg, timeoutMs, retries) {
   throw new Error('offscreen 无响应(' + msg.type + '): ' + (lastErr ? lastErr.message : 'unknown'));
 }
 
-async function toTab(tabId, msg) {
+async function toTab(tabId, msg, timeoutMs) {
   var payload = Object.assign({ target: 'content' }, msg);
-  return withTimeout(chrome.tabs.sendMessage(tabId, payload), 4000, 'tab:' + msg.type);
+  return withTimeout(chrome.tabs.sendMessage(tabId, payload), timeoutMs || 4000, 'tab:' + msg.type);
 }
 
 async function reinitOffscreen(desc) {
@@ -95,14 +95,28 @@ async function reinitOffscreen(desc) {
   await toOffscreen({ type: 'SC_INIT', desc: desc }, 8000, 3);
 }
 
-async function drawFrame(desc, dataUrl, scrollTop) {
+async function replayAll(desc) {
+  for (var i = 0; i < drawnFrames.length; i++) {
+    var f = drawnFrames[i];
+    await toOffscreen({
+      type: 'SC_FRAME',
+      dataUrl: f.dataUrl,
+      scrollTop: f.scrollTop,
+      rect: desc.rect,
+      step: f.step
+    }, 15000, 1);
+  }
+}
+
+async function drawFrame(desc, dataUrl, scrollTop, step) {
   var res = null;
   try {
     res = await toOffscreen({
       type: 'SC_FRAME',
       dataUrl: dataUrl,
       scrollTop: scrollTop,
-      rect: desc.rect
+      rect: desc.rect,
+      step: step
     }, 15000, 1);
   } catch (e) {
     log('frame-timeout', { error: e.message });
@@ -116,22 +130,14 @@ async function drawFrame(desc, dataUrl, scrollTop) {
 
   log('rebuild-offscreen', { reason: (res && res.error) || 'timeout', replay: drawnFrames.length });
   await reinitOffscreen(desc);
-
-  for (var i = 0; i < drawnFrames.length; i++) {
-    var f = drawnFrames[i];
-    await toOffscreen({
-      type: 'SC_FRAME',
-      dataUrl: f.dataUrl,
-      scrollTop: f.scrollTop,
-      rect: desc.rect
-    }, 15000, 1);
-  }
+  await replayAll(desc);
 
   res = await toOffscreen({
     type: 'SC_FRAME',
     dataUrl: dataUrl,
     scrollTop: scrollTop,
-    rect: desc.rect
+    rect: desc.rect,
+    step: step
   }, 15000, 1);
 
   if (!res || res.ok === false) {
@@ -206,7 +212,15 @@ async function runCapture() {
     overlaysApplied = true;
     log('overlays-handled', prepRes);
 
-    var step = Math.max(1, Math.min(Math.floor(desc.clientHeight), Math.floor(desc.rect.height)));
+    var settle = await toTab(tab.id, { type: 'SC_SETTLE_TOP', capMs: 6000 }, 10000);
+    log('settled-top', settle);
+    if (settle && settle.scrollHeight && Math.abs(settle.scrollHeight - desc.scrollHeight) > 16) {
+      desc.scrollHeight = settle.scrollHeight;
+      await toOffscreen({ type: 'SC_INIT', desc: desc }, 8000, 3);
+      log('canvas-reinit', { scrollHeight: desc.scrollHeight });
+    }
+
+    var step = Math.max(1, Math.floor(Math.min(desc.clientHeight, desc.rect.height) * 0.8));
     var total = desc.scrollHeight;
     var y = 0;
     var guard = 0;
@@ -216,9 +230,21 @@ async function runCapture() {
       log('frame-begin', { i: guard, requestedY: y, total: total });
 
       var scrolled = await toTab(tab.id, { type: 'SC_SCROLL', y: y });
-      log('scrolled', { actualY: scrolled.scrollTop });
+      log('scrolled', { actualY: scrolled.scrollTop, scrollHeight: scrolled.scrollHeight });
       await sleep(160);
       await setBadge(String(guard + 1), '#2f6fed');
+
+      var curH = scrolled.scrollHeight || total;
+      if (curH > total + 8) {
+        log('content-grew', { from: total, to: curH });
+        total = curH;
+        desc.scrollHeight = curH;
+        if (replayComplete) {
+          await reinitOffscreen(desc);
+          await replayAll(desc);
+          log('canvas-reinit', { scrollHeight: curH, replayed: drawnFrames.length });
+        }
+      }
 
       log('capture-begin', { windowId: tab.windowId });
       var dataUrl;
@@ -234,11 +260,11 @@ async function runCapture() {
       log('capture-done', { bytes: dataUrl ? dataUrl.length : 0 });
 
       log('draw-begin', { i: guard });
-      var frameRes = await drawFrame(desc, dataUrl, scrolled.scrollTop);
-      log('draw-done', { ok: frameRes && frameRes.ok, error: frameRes && frameRes.error });
+      var frameRes = await drawFrame(desc, dataUrl, scrolled.scrollTop, step);
+      log('draw-done', { ok: frameRes && frameRes.ok, drift: frameRes && frameRes.drift, error: frameRes && frameRes.error });
 
       if (drawnBytes + dataUrl.length <= MAX_REPLAY_BYTES) {
-        drawnFrames.push({ scrollTop: scrolled.scrollTop, dataUrl: dataUrl });
+        drawnFrames.push({ scrollTop: scrolled.scrollTop, dataUrl: dataUrl, step: step });
         drawnBytes += dataUrl.length;
       } else {
         replayComplete = false;

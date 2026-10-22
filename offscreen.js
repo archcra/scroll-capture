@@ -5,6 +5,7 @@ var outW = 0;
 var outH = 0;
 var rect = null;
 var viewport = null;
+var lastDy = null;
 
 function withTimeout(promise, ms, label) {
   var timer;
@@ -33,6 +34,7 @@ function init(msg) {
   ctx = canvas.getContext('2d');
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, outW, outH);
+  lastDy = null;
 }
 
 function loadImage(dataUrl) {
@@ -56,6 +58,28 @@ async function loadBitmap(dataUrl) {
   return loadImage(dataUrl);
 }
 
+function stripProfile(src, sx, sy, sw, sh, outH) {
+  var probeW = 96;
+  var c = document.createElement('canvas');
+  c.width = probeW;
+  c.height = outH;
+  var cx = c.getContext('2d', { willReadFrequently: true });
+  cx.fillStyle = '#ffffff';
+  cx.fillRect(0, 0, probeW, outH);
+  if (sw > 0 && sh > 0) cx.drawImage(src, sx, sy, sw, sh, 0, 0, probeW, outH);
+  var d = cx.getImageData(0, 0, probeW, outH).data;
+  var rows = new Array(outH);
+  for (var y = 0; y < outH; y++) {
+    var s = 0;
+    for (var x = 0; x < probeW; x++) {
+      var i = (y * probeW + x) * 4;
+      s += (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
+    }
+    rows[y] = s / probeW;
+  }
+  return rows;
+}
+
 async function frame(msg) {
   var bmp = await loadBitmap(msg.dataUrl);
   var w = bmp.width || bmp.naturalWidth;
@@ -69,9 +93,40 @@ async function frame(msg) {
     scrollTop: msg.scrollTop
   });
   if (p.sw > 0 && p.sh > 0) {
-    ctx.drawImage(bmp, p.sx, p.sy, p.sw, p.sh, p.dx, p.dy, p.dw, p.dh);
+    var dy = p.dy;
+    var drift = 0;
+    var frameH = p.dh;
+    var stepOut = (msg.step ? msg.step : 0) * scale;
+
+    if (lastDy !== null && stepOut > 0 && frameH > stepOut + 8) {
+      var expectedDy = lastDy + stepOut;
+      var probeH = Math.max(8, Math.floor(frameH - stepOut - 4));
+      var range = Math.min(Math.floor(stepOut * 0.35), 240);
+      range = Math.max(0, Math.min(range, Math.floor(outH - expectedDy - probeH), expectedDy));
+      if (range >= 4) {
+        var ref = stripProfile(canvas, 0, expectedDy - range, outW, range * 2 + probeH, range * 2 + probeH);
+        var probeImgH = Math.round(probeH * (p.sh / frameH));
+        var probe = stripProfile(bmp, p.sx, p.sy, p.sw, probeImgH, probeH);
+        var best = SCStitch.bestOffset({
+          expected: expectedDy,
+          range: range,
+          step: 2,
+          ref: ref,
+          probe: probe,
+          base: expectedDy - range
+        });
+        dy = best.dy;
+        drift = dy - expectedDy;
+      }
+    }
+
+    ctx.drawImage(bmp, p.sx, p.sy, p.sw, p.sh, p.dx, dy, p.dw, p.dh);
+    lastDy = dy;
+    if (typeof bmp.close === 'function') bmp.close();
+    return { drift: drift };
   }
   if (typeof bmp.close === 'function') bmp.close();
+  return { drift: 0 };
 }
 
 function watchdogMs(type) {
@@ -103,8 +158,8 @@ chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
         init(msg);
         reply({ ok: true, w: outW, h: outH });
       } else if (msg.type === 'SC_FRAME') {
-        await frame(msg);
-        reply({ ok: true });
+        var fr = await frame(msg);
+        reply({ ok: true, drift: fr.drift });
       } else if (msg.type === 'SC_FINISH') {
         reply({ ok: true, dataUrl: canvas.toDataURL('image/png'), w: outW, h: outH });
       } else {

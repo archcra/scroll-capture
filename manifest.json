@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Scroll Capture",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "自动识别右侧滚动区域并截取完整内容",
   "permissions": [
     "activeTab",
