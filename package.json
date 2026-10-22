@@ -1,0 +1,11 @@
+{
+  "name": "scroll-capture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Chrome extension that auto-detects a scrollable content panel and captures its full length as one image.",
+  "license": "MIT",
+  "scripts": {
+    "test": "node test/detect.test.js && node test/stitch.test.js",
+    "icons": "python3 tools/make-icons.py"
+  }
+}

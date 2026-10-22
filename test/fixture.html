@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>Scroll Capture 测试页</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font: 13px -apple-system, "PingFang SC", sans-serif; }
+  body { display: flex; }
+
+  .sidebar {
+    position: fixed; left: 0; top: 0; width: 240px; height: 100vh;
+    background: #1f2733; color: #cfd6e0; padding: 16px; overflow: auto;
+  }
+  .sidebar h1 { font-size: 15px; margin: 0 0 12px; }
+  .sidebar a { display: block; color: #9fb0c6; text-decoration: none; padding: 6px 0; }
+  .sidebar a.active { color: #fff; }
+
+  .main { margin-left: 240px; width: calc(100% - 240px); height: 100vh; }
+
+  .inner { height: 100%; overflow-y: auto; border-left: 3px solid #2f6fed; }
+  .doc { min-height: 100%; overflow-y: visible; border-left: 3px solid #27ae60; }
+
+  .sticky { position: sticky; top: 0; background: #fff7d6; padding: 10px 16px; border-bottom: 1px solid #e6d9a0; font-weight: 600; }
+
+  .row { padding: 10px 16px; height: 44px; border-bottom: 1px solid #eceef1; display: flex; align-items: center; gap: 12px; }
+  .row:nth-child(3n) { background: #f7f9fc; }
+  .row b { color: #2f6fed; width: 60px; }
+  .row span { color: #667; }
+
+  .toolbar { position: fixed; right: 16px; bottom: 16px; display: flex; gap: 8px; z-index: 10; }
+  .toolbar button { font: inherit; padding: 8px 12px; border-radius: 8px; border: 1px solid #ccd; background: #fff; cursor: pointer; }
+  .toolbar button.on { background: #2f6fed; color: #fff; border-color: #2f6fed; }
+</style>
+</head>
+<body>
+<aside class="sidebar">
+  <h1>固定左侧栏</h1>
+  <a class="active" href="#">概览</a>
+  <a href="#">内容</a>
+  <a href="#">设置</a>
+  <p style="margin-top:24px;color:#5f7189;line-height:1.6">右侧才是要截取的目标。左侧栏应被自动裁掉。</p>
+</aside>
+
+<main class="main" id="main">
+  <div class="sticky" id="sticky">滚动时这个表头是 sticky（已知限制：可能重复）</div>
+  <div id="content"></div>
+</main>
+
+<div class="toolbar">
+  <button id="btnInner" class="on">内滚动容器</button>
+  <button id="btnDoc">整页滚动</button>
+</div>
+
+<script>
+  var content = document.getElementById('content');
+  var main = document.getElementById('main');
+  var sticky = document.getElementById('sticky');
+
+  for (var i = 1; i <= 220; i++) {
+    var d = document.createElement('div');
+    d.className = 'row';
+    d.innerHTML = '<b>#' + i + '</b><span>第 ' + i + ' 行内容 · 用于检查拼接是否连续、有无重复或缺行</span>';
+    content.appendChild(d);
+  }
+
+  function setMode(mode) {
+    document.getElementById('btnInner').classList.toggle('on', mode === 'inner');
+    document.getElementById('btnDoc').classList.toggle('on', mode === 'doc');
+    main.innerHTML = '';
+    if (mode === 'inner') {
+      main.appendChild(sticky);
+      var inner = document.createElement('div');
+      inner.className = 'inner';
+      inner.appendChild(content);
+      main.appendChild(inner);
+    } else {
+      main.appendChild(content);
+    }
+    content.style.display = 'block';
+    window.scrollTo(0, 0);
+  }
+
+  document.getElementById('btnInner').addEventListener('click', function () { setMode('inner'); });
+  document.getElementById('btnDoc').addEventListener('click', function () { setMode('doc'); });
+</script>
+</body>
+</html>

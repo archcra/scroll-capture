@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>detect harness</title>
+<style>
+  html, body { margin: 0; padding: 0; }
+  #side, #side2 { position: fixed; left: 0; top: 0; width: 240px; height: 100vh; background: #222; }
+  #wrap { margin-left: 240px; height: 100vh; overflow-y: auto; }
+  #tall { height: 5000px; background: linear-gradient(#fff, #dde); }
+  #doc { margin-left: 240px; height: 5000px; background: linear-gradient(#fff, #ded); }
+</style>
+</head>
+<body>
+<script src="../lib/detect.js"></script>
+<script>
+  function div(id) {
+    var d = document.createElement('div');
+    d.id = id;
+    return d;
+  }
+
+  var out = {};
+
+  (function layoutA() {
+    document.body.innerHTML = '';
+    document.body.appendChild(div('side'));
+    var wrap = div('wrap');
+    wrap.appendChild(div('tall'));
+    document.body.appendChild(wrap);
+    var r = window.SC.detectTarget(document, window);
+    out.A = r ? { mode: r.mode, left: Math.round(r.rect.left), width: Math.round(r.rect.width), scrollHeight: r.scrollHeight, confidence: r.confidence } : null;
+  })();
+
+  (function layoutB() {
+    document.body.innerHTML = '';
+    document.body.appendChild(div('side2'));
+    document.body.appendChild(div('doc'));
+    var r = window.SC.detectTarget(document, window);
+    out.B = r ? { mode: r.mode, left: Math.round(r.rect.left), leftInset: r.leftInset, width: Math.round(r.rect.width), scrollHeight: r.scrollHeight } : null;
+  })();
+
+  out.viewport = { w: window.innerWidth, h: window.innerHeight };
+  var pre = document.createElement('pre');
+  pre.id = 'out';
+  pre.textContent = JSON.stringify(out);
+  document.body.appendChild(pre);
+</script>
+</body>
+</html>
